@@ -374,7 +374,7 @@ export default function Home() {
 
         await fetch(
 
-          "http://127.0.0.1:8000/legal",
+          "https://legalai-production-58b2.up.railway.app/legal",
 
           {
 
