@@ -1,13 +1,15 @@
 import os
 from dotenv import load_dotenv
 from google import genai
+from google.genai.errors import ClientError
 
+# Load environment variables
 load_dotenv()
 
+# Initialize Gemini client
 client = genai.Client(
     api_key=os.getenv("GEMINI_API_KEY")
 )
-
 
 SYSTEM_PROMPT = """
 You are an Indian legal information assistant.
@@ -29,62 +31,51 @@ Follow these rules:
    - Practical steps
 8. This is general legal information, not legal advice.
 9. Never guess section numbers.
-9. Do not mention section numbers unless you are highly confident.
-10. If uncertain, explain the concept without section numbers.
-11. Never discuss your internal reasoning or verification process.
+10. Do not mention section numbers unless you are highly confident.
+11. If uncertain, explain the concept without section numbers.
+12. Never discuss your internal reasoning or verification process.
 """
-
-
-def review_answer(answer):
-
-    response = client.models.generate_content(
-        model="gemini-2.5-flash",
-        contents=f"""
-You are a legal answer quality checker.
-
-Review the answer internally.
-
-Check:
-- Wrong legal sections
-- Fake citations
-- Incorrect laws
-- Overconfident statements
-
-IMPORTANT:
-Do NOT explain your review.
-Do NOT mention mistakes found.
-Do NOT show analysis.
-
-Only output the final improved legal answer that should be shown to the user.
-
-Original answer:
-
-{answer}
-"""
-    )
-
-    return response.text
-
 
 
 def legal_chat(question):
+    """
+    Streams Gemini's response chunk by chunk.
+    This function is a generator and is used directly
+    by FastAPI's StreamingResponse.
+    """
 
-    response = client.models.generate_content(
-        model="gemini-2.5-flash",
-        contents=f"""
+    try:
+        stream = client.models.generate_content_stream(
+            model="gemini-2.5-flash",
+            config={
+                "temperature": 0.3,
+            },
+            contents=f"""
 {SYSTEM_PROMPT}
 
 User Question:
 {question}
+
+Answer requirements:
+- Maximum 250 words.
+- Give a short summary first.
+- Use bullet points.
+- Avoid long explanations.
+- Do not repeat the question.
+- Only mention sections if highly confident.
 """
-    )
+        )
 
-    first_answer = response.text
+        # Stream chunks as Gemini generates them
+        for chunk in stream:
+            if chunk.text:
+                yield chunk.text
 
-    checked_answer = review_answer(first_answer)
+    except ClientError:
+        yield "The AI service has reached its request limit. Please wait a minute and try again."
 
-    return checked_answer
-
+    except Exception:
+        yield "Something went wrong while generating the response."
 
 
 if __name__ == "__main__":
@@ -94,5 +85,9 @@ if __name__ == "__main__":
         if question.lower() == "exit":
             break
 
-        answer = legal_chat(question)
-        print("\nAI:", answer)
+        print("\nAI: ", end="", flush=True)
+
+        for chunk in legal_chat(question):
+            print(chunk, end="", flush=True)
+
+        print("\n")
